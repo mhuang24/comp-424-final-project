@@ -1,7 +1,11 @@
+- name: "Melvin Huang"
+  mcgill_id: "261226690"
+  email: "melvin.huang@mail.mcgill.ca"
+
 - name: "Your full name as it appears on your transcript"
   mcgill_id: "Your McGill ID"
   email: "email@mail.mcgill.ca"
 
-- name: "Your full name as it appears on your transcript"
+  - name: "Your full name as it appears on your transcript"
   mcgill_id: "Your McGill ID"
   email: "email@mail.mcgill.ca"
