@@ -157,11 +157,11 @@ def evaluate_move(board, reserves, player, opponent):
         own = sum(cell == player for cell in cells)
         enemy = sum(cell == opponent for cell in cells)
 
-        # Obstacle makes the line unwinnable
+        #obstacle makes line unwinnable
         if OBSTACLE in cells:
             continue
 
-        # Both players occupy the line
+        #both players occupy line
         if own > 0 and enemy > 0:
             continue
 
