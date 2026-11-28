@@ -7,10 +7,13 @@ from matplotlib.pyplot import margins
 from agents.agent import Agent
 from store import register_agent
 from helpers import (Move, get_valid_moves, execute_move, check_winner,
-                     check_endgame, random_move, copy_state, top_view, check_move_validity)
+                     check_endgame, random_move, copy_state, top_view, check_move_validity, LINES)
 from constants import *
 import numpy as np
 import time
+
+class SearchTimeout(Exception):
+    pass
 
 @register_agent("student_agent")          # do not change this string
 class StudentAgent(Agent):
@@ -44,81 +47,128 @@ class StudentAgent(Agent):
 
 
 def iterative_deepening(board, reserves, player, opponent, start, margin):
-    best = random_move(board, reserves, player, np.random.default_rng())
-    step_amount = 1
+    moves = list(get_valid_moves(board, reserves, player))
 
+    if not moves:
+        return None
+
+    best = moves[0]
+    depth = 1
+    deadline = start + STEP_TIME_LIMIT - margin
     # Debug
     # print((time.perf_counter() - start) < STEP_TIME_LIMIT - margin)
     # Debug
 
-    while time.perf_counter() - start < STEP_TIME_LIMIT - margin:
+    while time.perf_counter() < deadline:
+        moves.sort(key=lambda m: m != best)
         best_value = float(-math.inf)
         cur_best = best
 
         alpha = float(-math.inf)
         beta = float(math.inf)
 
-        for m in get_valid_moves(board, reserves, player):
-            if time.perf_counter() - start >= STEP_TIME_LIMIT - margin:
-                break
+        try:
+            for m in moves:
+                if time.perf_counter() >= deadline:
+                    raise SearchTimeout()
 
-            b, r = copy_state(board, reserves)
-            execute_move(b, r, player, m)
+                b, r = copy_state(board, reserves)
+                execute_move(b, r, player, m)
 
-            value = minimax(b, r, player, opponent, alpha, beta, False, step_amount)
+                value = minimax(b, r, player, opponent, alpha, beta, False, depth - 1, deadline, 1)
 
-            if value > best_value:
-                best_value = value
-                cur_best = m
+                if value > best_value:
+                    best_value = value
+                    cur_best = m
 
-            alpha = max(alpha, best_value)
+                alpha = max(alpha, best_value)
+        except SearchTimeout:
+            break
 
-        else:
-            best = cur_best
-            step_amount += 1
+        best = cur_best
+        depth += 1
 
     return best
 
+WIN_SCORE = 100000
 
-def minimax(board, reserves, player, opponent, alpha, beta, player_turn, steps):
-    if steps == 0 or check_endgame(board, reserves, player if player_turn else opponent, steps * 2, ALLOW_MOVES): # or if game state end (winner)
-        return evaluate_move(board, reserves, player_turn, player, opponent)
+def minimax(board, reserves, player, opponent, alpha, beta, player_turn, depth, deadline, ply):
+    if time.perf_counter() >= deadline:
+        raise SearchTimeout()
 
-    if player_turn:
-        score = -math.inf
-    else:
-        score = math.inf
+    last_mover = opponent if player_turn else player
+    winner= check_winner(board, last_mover)
 
-    for m in get_valid_moves(board, reserves, player):
+    if winner == player:
+        return WIN_SCORE - ply
+    elif winner == opponent:
+        return -WIN_SCORE + ply
+
+    if depth == 0:
+        return evaluate_move(board, reserves, player, opponent)
+
+    current_player = player if player_turn else opponent
+    moves = get_valid_moves(board, reserves, current_player)
+
+    if not moves:
+        if ALLOW_MOVES:
+            winner = opponent if player_turn else player
+            return WIN_SCORE - ply if winner == player else -WIN_SCORE + ply
+
+        other_player = opponent if current_player == player else player
+
+        if not get_valid_moves(board, reserves, other_player):
+            return 0
+
+        return minimax(board, reserves, player, opponent, alpha, beta, not player_turn, depth - 1, deadline, ply + 1)
+
+    score = -math.inf if player_turn else math.inf
+    for m in moves:
+        if time.perf_counter() >= deadline:
+            raise SearchTimeout()
+
         b, r = copy_state(board, reserves)
-        execute_move(b, r, player, m)
+        execute_move(b, r, current_player, m)
+
+        cur = minimax(b, r, player, opponent, alpha, beta, not player_turn, depth - 1, deadline, ply + 1)
 
         if player_turn:
-            cur = minimax(b, r, player, opponent, alpha, beta, False, steps - 1)
-
             score = max(score, cur)
-            alpha = max(alpha, cur)
+            alpha = max(alpha, score)
 
         else:
-            cur = minimax(b, r, player, opponent, alpha, beta, True, steps - 1)
-
             score = min(score, cur)
-            beta = min(beta, cur)
+            beta = min(beta, score)
 
         if beta <= alpha:
             break
 
     return score
 
+LINE_WEIGHTS = [0, 1, 10, 100, 1000]
 
-def evaluate_move(board, reserves, if_player, player, opponent):
-    if if_player:
-        p = player
-    else:
-        p = opponent
+def evaluate_move(board, reserves, player, opponent):
+    owners, sizes = top_view(board)
+    score = 0
 
-    state = top_view(board)
+    for line in LINES[WIN_LENGTH]:
+        cells = [owners[r, c] for r, c in line]
 
-    
+        own = sum(cell == player for cell in cells)
+        enemy = sum(cell == opponent for cell in cells)
 
-    return 0
+        # Obstacle makes the line unwinnable
+        if OBSTACLE in cells:
+            continue
+
+        # Both players occupy the line
+        if own > 0 and enemy > 0:
+            continue
+
+        if own > 0:
+            score += LINE_WEIGHTS[own]
+
+        elif enemy > 0:
+            score -= LINE_WEIGHTS[enemy]
+
+    return score
